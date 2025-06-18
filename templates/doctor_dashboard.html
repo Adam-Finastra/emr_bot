@@ -94,14 +94,86 @@
 
     <!-- Patient History Modal -->
     <div class="modal fade" id="historyModal" tabindex="-1">
-        <div class="modal-dialog modal-lg">
+        <div class="modal-dialog modal-xl">
             <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Patient History</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title">Patient Medical History</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <div id="historyContent"></div>
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header bg-light">
+                                    <h6 class="mb-0">Patient Information</h6>
+                                </div>
+                                <div class="card-body" id="patientInfo">
+                                    <!-- Patient info will be populated here -->
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header bg-light">
+                                    <h6 class="mb-0">Current Status</h6>
+                                </div>
+                                <div class="card-body" id="currentStatus">
+                                    <!-- Current status will be populated here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header bg-light">
+                                    <h6 class="mb-0">Comprehensive Summary</h6>
+                                </div>
+                                <div class="card-body" id="comprehensiveSummary">
+                                    <!-- Comprehensive summary will be populated here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header bg-light">
+                                    <h6 class="mb-0">Vital Signs History</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="table-responsive">
+                                        <table class="table table-striped" id="vitalSignsTable">
+                                            <thead>
+                                                <tr>
+                                                    <th>Date</th>
+                                                    <th>BP</th>
+                                                    <th>Temp</th>
+                                                    <th>Pulse</th>
+                                                    <th>BMI</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <!-- Vital signs history will be populated here -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header bg-light">
+                                    <h6 class="mb-0">Trend Analysis</h6>
+                                </div>
+                                <div class="card-body" id="trendAnalysis">
+                                    <!-- Trend analysis will be populated here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

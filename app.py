@@ -3,7 +3,7 @@ import mysql.connector
 from config import Config
 from ai_module import AIModule
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import json
 
 app = Flask(__name__)
@@ -87,6 +87,39 @@ init_db()
 # Load and train ML model (optional for MVP)
 # ai.train_ml_model('vital_signs_disease_dataset_1000.xlsx')
 
+# Add this helper function before the routes
+def convert_to_serializable(obj):
+    """Convert objects to JSON serializable format."""
+    if isinstance(obj, (datetime, date)):
+        return obj.strftime('%Y-%m-%d %H:%M:%S')
+    elif isinstance(obj, timedelta):
+        return str(obj)
+    elif isinstance(obj, dict):
+        return {key: convert_to_serializable(value) for key, value in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [convert_to_serializable(item) for item in obj]
+    elif isinstance(obj, (int, float, str, bool, type(None))):
+        return obj
+    else:
+        return str(obj)
+
+def format_recommendation(rec):
+    """Convert a recommendation dict to a concise, human-readable string for doctors."""
+    # Combine action and message for clarity
+    action = rec.get('action', '')
+    message = rec.get('message', '')
+    risk = rec.get('risk_level', '').title()
+    # Compose a clear sentence
+    if action and message:
+        text = f"{action}. {message} (Risk Level: {risk})"
+    elif action:
+        text = f"{action} (Risk Level: {risk})"
+    elif message:
+        text = f"{message} (Risk Level: {risk})"
+    else:
+        text = f"Recommendation (Risk Level: {risk})"
+    return text
+
 @app.route('/')
 def index():
     return render_template('nurse_dashboard.html')
@@ -129,6 +162,9 @@ def doctor_dashboard():
                 patient['recommendations'] = json.loads(patient['recommendations']) if patient['recommendations'] else []
             except Exception:
                 patient['recommendations'] = []
+            # Convert recommendations to human-readable strings
+            if patient['recommendations'] and isinstance(patient['recommendations'][0], dict):
+                patient['recommendations'] = [format_recommendation(rec) for rec in patient['recommendations']]
             # Ensure summary is always present and correct
             if not patient.get('summary') or not patient['summary'].strip() or patient['summary'].strip().lower() == 'no summary available.':
                 # Regenerate summary from latest vitals if missing or placeholder
@@ -293,67 +329,160 @@ def submit_vitals():
 @app.route('/patient_history/<registration_id>')
 def patient_history(registration_id):
     try:
+        # Input validation
+        if not registration_id or not registration_id.strip():
+            return jsonify({'error': 'Invalid registration ID'}), 400
+
         conn = get_db_connection()
         if not conn:
+            print("Database connection failed")  # Debug log
             return jsonify({'error': 'Database connection error'}), 500
         
         cursor = conn.cursor(dictionary=True)
         
-        # Get patient info
-        cursor.execute('''
-            SELECT * FROM patients
-            WHERE registration_id = %s
-        ''', (registration_id,))
-        patient_info = cursor.fetchone()
-        
-        if not patient_info:
-            return jsonify({'error': 'Patient not found'}), 404
-        
-        # Get vital signs history
-        cursor.execute('''
-            SELECT * FROM vital_signs
-            WHERE registration_id = %s
-            ORDER BY created_at DESC
-        ''', (registration_id,))
-        
-        history = cursor.fetchall()
-        
-        # Process history data
-        for record in history:
+        try:
+            # Get patient info with enhanced query
+            cursor.execute('''
+                SELECT p.*, 
+                       (SELECT COUNT(*) FROM vital_signs WHERE registration_id = p.registration_id) as visit_count,
+                       (SELECT MAX(created_at) FROM vital_signs WHERE registration_id = p.registration_id) as last_visit
+                FROM patients p
+                WHERE p.registration_id = %s
+            ''', (registration_id,))
+            patient_info = cursor.fetchone()
+            
+            if not patient_info:
+                print(f"Patient not found: {registration_id}")  # Debug log
+                return jsonify({'error': 'Patient not found'}), 404
+            
+            # Get vital signs history with enhanced query
+            cursor.execute('''
+                SELECT 
+                    v.*,
+                    TIMESTAMPDIFF(DAY, LAG(v.created_at) OVER (ORDER BY v.created_at), v.created_at) as days_since_last_visit
+                FROM vital_signs v
+                WHERE v.registration_id = %s
+                ORDER BY v.created_at DESC
+            ''', (registration_id,))
+            
+            history = cursor.fetchall()
+            
+            # Process history data with error handling
+            for record in history:
+                try:
+                    # Safely parse JSON fields
+                    record['alerts'] = json.loads(record['alerts']) if record['alerts'] else []
+                    record['recommendations'] = json.loads(record['recommendations']) if record['recommendations'] else []
+                    record['comorbidities'] = json.loads(record['comorbidities']) if record['comorbidities'] else []
+                    record['medications'] = json.loads(record['medications']) if record['medications'] else []
+                except json.JSONDecodeError as e:
+                    print(f"JSON parsing error for record {record.get('id')}: {str(e)}")  # Debug log
+                    record['alerts'] = []
+                    record['recommendations'] = []
+                    record['comorbidities'] = []
+                    record['medications'] = []
+                
+                # Generate summary if missing
+                try:
+                    if not record.get('summary') or not record['summary'].strip():
+                        # Ensure all values are properly converted to their expected types
+                        summary_data = {
+                            'name': str(record.get('name', '')),
+                            'age': int(record.get('age', 0)),
+                            'gender': str(record.get('gender', '')),
+                            'height': float(record.get('height', 0)),
+                            'weight': float(record.get('weight', 0)),
+                            'systolic_bp': int(record.get('systolic_bp', 0)),
+                            'diastolic_bp': int(record.get('diastolic_bp', 0)),
+                            'temp': float(record.get('temp', 0)),
+                            'pulse': int(record.get('pulse', 0))
+                        }
+                        record['summary'] = ai.generate_summary(summary_data)
+                except Exception as e:
+                    print(f"Error generating summary for record {record.get('id')}: {str(e)}")  # Debug log
+                    record['summary'] = 'Error generating summary'
+            
+            # Generate comprehensive analysis with error handling
             try:
-                record['alerts'] = json.loads(record['alerts']) if record['alerts'] else []
-            except Exception:
-                record['alerts'] = []
+                trend_analysis = ai.analyze_trends(history)
+            except Exception as e:
+                print(f"Error in trend analysis: {str(e)}")  # Debug log
+                trend_analysis = {
+                    'vital_trends': 'Error analyzing trends',
+                    'alert_summary': 'Error analyzing alerts',
+                    'recommendation_summary': 'Error analyzing recommendations'
+                }
+            
+            # Generate comprehensive summary with error handling
             try:
-                record['recommendations'] = json.loads(record['recommendations']) if record['recommendations'] else []
-            except Exception:
-                record['recommendations'] = []
+                # Ensure all values are properly converted to their expected types
+                patient_name = str(patient_info.get('name', ''))
+                patient_age = int(patient_info.get('age', 0))
+                patient_gender = str(patient_info.get('gender', '')).lower()
+                visit_count = int(patient_info.get('visit_count', 0))
+                risk_level = str(patient_info.get('last_risk_level', 'UNKNOWN'))
+                risk_score = float(patient_info.get('last_risk_score', 0.0))
+
+                comprehensive_summary = {
+                    'patient_overview': f"{patient_name} is a {patient_age}-year-old {patient_gender} patient with {visit_count} recorded visits.",
+                    'risk_assessment': f"Current risk level: {risk_level} (Score: {risk_score:.2f})",
+                    'vital_trends': str(trend_analysis.get('vital_trends', 'No significant trends detected.')),
+                    'alert_summary': str(trend_analysis.get('alert_summary', 'No significant alerts in history.')),
+                    'recommendation_summary': str(trend_analysis.get('recommendation_summary', 'No active recommendations.'))
+                }
+            except Exception as e:
+                print(f"Error generating comprehensive summary: {str(e)}")  # Debug log
+                comprehensive_summary = {
+                    'patient_overview': 'Error generating patient overview',
+                    'risk_assessment': 'Error generating risk assessment',
+                    'vital_trends': 'Error generating vital trends',
+                    'alert_summary': 'Error generating alert summary',
+                    'recommendation_summary': 'Error generating recommendation summary'
+                }
+            
+            # Prepare response data with error handling
             try:
-                record['comorbidities'] = json.loads(record['comorbidities']) if record['comorbidities'] else []
-            except Exception:
-                record['comorbidities'] = []
-            try:
-                record['medications'] = json.loads(record['medications']) if record['medications'] else []
-            except Exception:
-                record['medications'] = []
-            if not record.get('summary'):
-                record['summary'] = ''
-        
-        # Generate trend analysis
-        trend_analysis = ai.analyze_trends(history)
-        
-        response = {
-            'patient_info': patient_info,
-            'history': history,
-            'trend_analysis': trend_analysis
-        }
-        
-        cursor.close()
-        conn.close()
-        
-        return jsonify(response)
+                # Convert all data to JSON serializable format
+                response = {
+                    'patient_info': {
+                        'basic_info': {
+                            'name': str(patient_info.get('name', '')),
+                            'age': int(patient_info.get('age', 0)),
+                            'gender': str(patient_info.get('gender', '')),
+                            'registration_id': str(patient_info.get('registration_id', '')),
+                            'visit_count': int(patient_info.get('visit_count', 0)),
+                            'last_visit': convert_to_serializable(patient_info.get('last_visit'))
+                        },
+                        'medical_info': {
+                            'comorbidities': json.loads(patient_info.get('comorbidities', '[]')),
+                            'medications': json.loads(patient_info.get('medications', '[]'))
+                        }
+                    },
+                    'current_status': {
+                        'risk_level': str(patient_info.get('last_risk_level', 'UNKNOWN')),
+                        'risk_score': float(patient_info.get('last_risk_score', 0.0)),
+                        'latest_vitals': convert_to_serializable(history[0]) if history else None
+                    },
+                    'comprehensive_summary': comprehensive_summary,
+                    'history': [convert_to_serializable(record) for record in history],
+                    'trend_analysis': convert_to_serializable(trend_analysis)
+                }
+            except Exception as e:
+                print(f"Error preparing response data: {str(e)}")  # Debug log
+                return jsonify({'error': 'Error preparing response data'}), 500
+            
+            return jsonify(response)
+            
+        except mysql.connector.Error as err:
+            print(f"Database error: {str(err)}")  # Debug log
+            return jsonify({'error': f'Database error: {str(err)}'}), 500
+        finally:
+            cursor.close()
+            conn.close()
+            
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"Unexpected error in patient_history: {str(e)}")  # Debug log
+        return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)

@@ -49,175 +49,126 @@ function sortPatients() {
     patientCards.forEach(card => patientList.appendChild(card));
 }
 
-// View patient history
+// Function to view patient history
 function viewPatientHistory(registrationId) {
+    // Show loading state
+    const modal = new bootstrap.Modal(document.getElementById('historyModal'));
+    modal.show();
+    
+    // Fetch patient history
     fetch(`/patient_history/${registrationId}`)
         .then(response => response.json())
         .then(data => {
-            const historyContent = document.getElementById('historyContent');
-            historyContent.innerHTML = '';
-
             if (data.error) {
-                historyContent.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+                alert('Error loading patient history: ' + data.error);
                 return;
             }
-
-            // Create patient info section
-            const patientInfo = document.createElement('div');
-            patientInfo.className = 'card mb-4';
+            
+            // Populate patient information
+            const patientInfo = document.getElementById('patientInfo');
             patientInfo.innerHTML = `
-                <div class="card-header">
-                    <h5 class="mb-0">Patient Information</h5>
+                <div class="mb-3">
+                    <h5>${data.patient_info.basic_info.name}</h5>
+                    <p class="mb-1"><strong>Age:</strong> ${data.patient_info.basic_info.age}</p>
+                    <p class="mb-1"><strong>Gender:</strong> ${data.patient_info.basic_info.gender}</p>
+                    <p class="mb-1"><strong>ID:</strong> ${data.patient_info.basic_info.registration_id}</p>
+                    <p class="mb-1"><strong>Total Visits:</strong> ${data.patient_info.basic_info.visit_count}</p>
+                    <p class="mb-1"><strong>Last Visit:</strong> ${data.patient_info.basic_info.last_visit}</p>
                 </div>
-                <div class="card-body">
-                    <div class="row">
-                        <div class="col-md-3">
-                            <p><strong>Name:</strong> ${data.patient_info.name}</p>
-                        </div>
-                        <div class="col-md-3">
-                            <p><strong>Age:</strong> ${data.patient_info.age}</p>
-                        </div>
-                        <div class="col-md-3">
-                            <p><strong>Gender:</strong> ${data.patient_info.gender}</p>
-                        </div>
-                        <div class="col-md-3">
-                            <p><strong>Last Risk Level:</strong> 
-                                <span class="badge bg-${getRiskLevelColor(data.patient_info.last_risk_level)}">
-                                    ${data.patient_info.last_risk_level}
-                                </span>
-                            </p>
-                        </div>
-                    </div>
+                <div class="mb-3">
+                    <h6>Medical Information</h6>
+                    <p class="mb-1"><strong>Comorbidities:</strong></p>
+                    <ul class="list-unstyled ms-3">
+                        ${data.patient_info.medical_info.comorbidities.map(c => `<li>• ${c}</li>`).join('') || '<li>None recorded</li>'}
+                    </ul>
+                    <p class="mb-1"><strong>Medications:</strong></p>
+                    <ul class="list-unstyled ms-3">
+                        ${data.patient_info.medical_info.medications.map(m => `<li>• ${m}</li>`).join('') || '<li>None recorded</li>'}
+                    </ul>
                 </div>
             `;
-            historyContent.appendChild(patientInfo);
-
-            // Create vital signs history table
-            const table = document.createElement('table');
-            table.className = 'table table-striped table-hover';
-            table.innerHTML = `
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Time</th>
-                        <th>BMI</th>
-                        <th>BP</th>
-                        <th>Temp</th>
-                        <th>Pulse</th>
-                        <th>Risk Level</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${data.history.map(record => `
-                        <tr>
-                            <td>${record.date}</td>
-                            <td>${record.time}</td>
-                            <td>${record.bmi.toFixed(1)}</td>
-                            <td>${record.systolic_bp}/${record.diastolic_bp}</td>
-                            <td>${record.temp}°F</td>
-                            <td>${record.pulse}</td>
-                            <td>
-                                <span class="badge bg-${getRiskLevelColor(record.risk_level)}">
-                                    ${record.risk_level}
-                                </span>
-                            </td>
-                            <td>
-                                <button class="btn btn-sm btn-info" onclick="showVitalDetails(${JSON.stringify(record).replace(/"/g, '&quot;')})">
-                                    View Details
-                                </button>
-                            </td>
-                        </tr>
-                    `).join('')}
-                </tbody>
+            
+            // Populate current status
+            const currentStatus = document.getElementById('currentStatus');
+            const latestVitals = data.current_status.latest_vitals;
+            currentStatus.innerHTML = `
+                <div class="mb-3">
+                    <h6>Risk Assessment</h6>
+                    <p class="mb-1"><strong>Level:</strong> <span class="badge ${getRiskBadgeClass(data.current_status.risk_level)}">${data.current_status.risk_level}</span></p>
+                    <p class="mb-1"><strong>Score:</strong> ${data.current_status.risk_score.toFixed(2)}</p>
+                </div>
+                ${latestVitals ? `
+                <div class="mb-3">
+                    <h6>Latest Vitals</h6>
+                    <p class="mb-1"><strong>BP:</strong> ${latestVitals.systolic_bp}/${latestVitals.diastolic_bp}</p>
+                    <p class="mb-1"><strong>Temperature:</strong> ${latestVitals.temp}°C</p>
+                    <p class="mb-1"><strong>Pulse:</strong> ${latestVitals.pulse} bpm</p>
+                    <p class="mb-1"><strong>BMI:</strong> ${latestVitals.bmi.toFixed(1)}</p>
+                </div>
+                ` : ''}
             `;
-            historyContent.appendChild(table);
-
-            // Create trend analysis section
-            if (data.trend_analysis) {
-                const trendSection = document.createElement('div');
-                trendSection.className = 'card mt-4';
-                trendSection.innerHTML = `
-                    <div class="card-header">
-                        <h5 class="mb-0">Trend Analysis</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-6">
-                                <h6>Vital Signs Trends</h6>
-                                <ul class="list-group">
-                                    ${Object.entries(data.trend_analysis).map(([key, value]) => `
-                                        <li class="list-group-item d-flex justify-content-between align-items-center">
-                                            ${key}
-                                            <span class="badge bg-${getTrendColor(value)}">${value}</span>
-                                        </li>
-                                    `).join('')}
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                historyContent.appendChild(trendSection);
-            }
-
-            historyModal.show();
+            
+            // Populate comprehensive summary
+            const comprehensiveSummary = document.getElementById('comprehensiveSummary');
+            comprehensiveSummary.innerHTML = `
+                <div class="mb-3">
+                    <p>${data.comprehensive_summary.patient_overview}</p>
+                    <p>${data.comprehensive_summary.risk_assessment}</p>
+                    <p>${data.comprehensive_summary.vital_trends}</p>
+                    <p>${data.comprehensive_summary.alert_summary}</p>
+                    <p>${data.comprehensive_summary.recommendation_summary}</p>
+                </div>
+            `;
+            
+            // Populate vital signs history table
+            const vitalSignsTable = document.getElementById('vitalSignsTable').getElementsByTagName('tbody')[0];
+            vitalSignsTable.innerHTML = data.history.map(record => `
+                <tr>
+                    <td>${new Date(record.created_at).toLocaleString()}</td>
+                    <td>${record.systolic_bp}/${record.diastolic_bp}</td>
+                    <td>${record.temp}°C</td>
+                    <td>${record.pulse}</td>
+                    <td>${record.bmi.toFixed(1)}</td>
+                </tr>
+            `).join('');
+            
+            // Populate trend analysis
+            const trendAnalysis = document.getElementById('trendAnalysis');
+            trendAnalysis.innerHTML = `
+                <div class="mb-3">
+                    <h6>Vital Signs Trends</h6>
+                    <p>${data.trend_analysis.vital_trends || 'No significant trends detected.'}</p>
+                </div>
+                <div class="mb-3">
+                    <h6>Alert History</h6>
+                    <p>${data.trend_analysis.alert_summary || 'No significant alerts in history.'}</p>
+                </div>
+                <div class="mb-3">
+                    <h6>Recommendation History</h6>
+                    <p>${data.trend_analysis.recommendation_summary || 'No active recommendations.'}</p>
+                </div>
+            `;
         })
         .catch(error => {
-            console.error('Error fetching patient history:', error);
-            document.getElementById('historyContent').innerHTML = 
-                '<div class="alert alert-danger">Error loading patient history</div>';
-            historyModal.show();
+            console.error('Error:', error);
+            alert('Error loading patient history. Please try again.');
         });
 }
 
-function showVitalDetails(record) {
-    const modal = new bootstrap.Modal(document.getElementById('vitalDetailsModal'));
-    const modalBody = document.getElementById('vitalDetailsBody');
-    
-    modalBody.innerHTML = `
-        <div class="card mb-3">
-            <div class="card-header">
-                <h6 class="mb-0">Summary</h6>
-            </div>
-            <div class="card-body">
-                <pre style="white-space: pre-wrap; font-family: inherit; background: none; border: none; padding: 0; margin: 0;">${record.summary || 'No summary available.'}</pre>
-            </div>
-        </div>
-        <div class="card mb-3">
-            <div class="card-header">
-                <h6 class="mb-0">Alerts</h6>
-            </div>
-            <div class="card-body">
-                ${record.alerts && record.alerts.length > 0 ? `<ul class='list-unstyled'>${record.alerts.map(alert => `<li class='alert ${alert.includes('Critical') ? 'alert-danger' : 'alert-warning'} mb-2'>${alert}</li>`).join('')}</ul>` : '<div class="alert alert-success">No alerts</div>'}
-            </div>
-        </div>
-        <div class="card">
-            <div class="card-header">
-                <h6 class="mb-0">Recommendations</h6>
-            </div>
-            <div class="card-body">
-                ${record.recommendations && record.recommendations.length > 0 ? `<ul class='list-unstyled'>${record.recommendations.map(rec => `<li class='recommendation-item'>${rec}</li>`).join('')}</ul>` : '<div class="alert alert-success">No recommendations</div>'}
-            </div>
-        </div>
-    `;
-    
-    modal.show();
-}
-
-function getRiskLevelColor(level) {
-    switch(level) {
-        case 'CRITICAL': return 'danger';
-        case 'HIGH': return 'warning';
-        case 'MODERATE': return 'info';
-        case 'LOW': return 'success';
-        default: return 'secondary';
+// Helper function to get appropriate badge class for risk level
+function getRiskBadgeClass(riskLevel) {
+    switch(riskLevel) {
+        case 'CRITICAL':
+            return 'bg-danger';
+        case 'HIGH':
+            return 'bg-warning';
+        case 'MODERATE':
+            return 'bg-info';
+        case 'LOW':
+            return 'bg-success';
+        default:
+            return 'bg-secondary';
     }
-}
-
-function getTrendColor(trend) {
-    if (trend.includes('increasing')) return 'danger';
-    if (trend.includes('decreasing')) return 'success';
-    return 'info';
 }
 
 // Auto-refresh dashboard every 5 minutes
